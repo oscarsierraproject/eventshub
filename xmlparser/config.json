@@ -1,0 +1,8 @@
+{
+  "host": "localhost",
+  "port": 4789,
+  "source_files_paths": [
+      "/home/username/source_file1.xml",
+      "/home/username/source_file2.xml"
+  ]
+}
