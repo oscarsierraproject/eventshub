@@ -13,13 +13,13 @@ import (
 )
 
 var (
-	Test_event_1 EventData = EventData{
+	TestEvent1 = EventData{
 		Common{EventDataStructName},
 		0, "1.1.1", "e0b2dd0f43614138995beafa87b6356b", "Ur. Mr X",
 		DateTime{Common{DateTimeStructName}, 2021, 1, 12, 0, 0},
 		DateTime{Common{DateTimeStructName}, 2021, 1, 12, 0, 0},
 		"Warszawa, ul. Okrężna 26", "Likes beer", 7, false, true, false, "APP"}
-	Test_event_2 EventData = EventData{
+	TestEvent2 = EventData{
 		Common{EventDataStructName},
 		0, "1.1.1", "5bd8fa795fa04bf79c37dd1b9583709f", "Im. Miss Y",
 		DateTime{Common{DateTimeStructName}, 2024, 2, 13, 12, 0},
@@ -32,7 +32,7 @@ func Test_NewSqliteRepository(t *testing.T) {
 	 * WHEN NewSqliteRepository is called
 	 * THEN a new SQLiteRepository structure should be returned
 	 */
-	db, err := sql.Open("sqlite3", SQL_FILE)
+	db, err := sql.Open("sqlite3", SQLFile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -52,7 +52,8 @@ func Test_Migrate(t *testing.T) {
 		err error
 		db  *sql.DB
 	)
-	db, err = sql.Open("sqlite3", SQL_FILE)
+
+	db, err = sql.Open("sqlite3", SQLFile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -76,7 +77,8 @@ func Test_GetAllEvents(t *testing.T) {
 		err error
 		db  *sql.DB
 	)
-	db, err = sql.Open("sqlite3", SQL_FILE)
+
+	db, err = sql.Open("sqlite3", SQLFile)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -86,22 +88,25 @@ func Test_GetAllEvents(t *testing.T) {
 	err = sut.Migrate()
 	assert.NoError(t, err)
 
-	_, err = sut.InsertEvent(Test_event_1)
+	assert.Equal(t, int64(0), TestEvent1.ID)
+	_, err = sut.InsertEvent(&TestEvent1)
 	assert.NoError(t, err)
 
-	_, err = sut.InsertEvent(Test_event_2)
+	assert.Equal(t, int64(0), TestEvent2.ID)
+	_, err = sut.InsertEvent(&TestEvent2)
 	assert.NoError(t, err)
 
 	result, err := sut.GetAllEvents()
+	assert.NoError(t, err)
 	assert.Len(t, result, 2)
 
-	assert.Equal(t, result[0].Urgent, Test_event_1.Urgent)
-	assert.Equal(t, result[0].Important, Test_event_1.Important)
-	assert.Equal(t, result[0].Done, Test_event_1.Done)
+	assert.Equal(t, result[0].Urgent, TestEvent1.Urgent)
+	assert.Equal(t, result[0].Important, TestEvent1.Important)
+	assert.Equal(t, result[0].Done, TestEvent1.Done)
 
-	assert.NotEqualf(t, result[0].Id, Test_event_1.Id, "Event ID should be populated with database value")
-	assert.NotEqualf(t, result[1].Id, Test_event_2.Id, "Event ID should be populated with database value")
-	assert.NotEqualf(t, result[0].Id, result[1].Id, "Retrieved events should have different ID's")
+	assert.Equalf(t, result[0].ID, TestEvent1.ID, "Event ID should be populated with database value, %d != %d", result[0].ID, TestEvent1.ID)
+	assert.Equalf(t, result[1].ID, TestEvent2.ID, "Event ID should be populated with database value, %d != %d", result[1].ID, TestEvent2.ID)
+	assert.NotEqualf(t, result[0].ID, result[1].ID, "Retrieved events should have different ID's")
 
 	sut.Close()
 }

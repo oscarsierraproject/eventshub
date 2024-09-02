@@ -32,7 +32,7 @@ func stringToDateTimeConverter(s string) v1rest.DateTime {
 func xmlEventToEventDataConverter(xe Event) v1rest.EventData {
 	var event v1rest.EventData
 	event.Version = xe.Version
-	event.Uuid = xe.Uuid
+	event.UUID = xe.UUID
 	event.Title = xe.Title
 	event.Start = stringToDateTimeConverter(xe.Start)
 	event.End = stringToDateTimeConverter(xe.End)

@@ -20,7 +20,7 @@ type Root struct {
 type Event struct {
 	XMLName   xml.Name `xml:"event"`
 	Version   string   `xml:"ver,attr"`
-	Uuid      string   `xml:"uuid,attr"`
+	UUID      string   `xml:"uuid,attr"`
 	Start     string   `xml:"start,attr"`
 	End       string   `xml:"end,attr"`
 	Remind    string   `xml:"remind,attr"`

@@ -17,13 +17,9 @@ func Test_BoolToIntConversion(t *testing.T) {
 	 * AND 'false' should be converted to 0
 	 */
 	t.Parallel()
-	var (
-		sample_true  bool = true
-		sample_false bool = false
-	)
 
-	assert.Equal(t, Btoi(sample_true), 1)
-	assert.Equal(t, Btoi(sample_false), 0)
+	assert.Equal(t, Btoi(true), 1)
+	assert.Equal(t, Btoi(false), 0)
 }
 
 func Test_TimeConversionFromDateTimeToUnixAndViceVersa(t *testing.T) {
@@ -33,14 +29,19 @@ func Test_TimeConversionFromDateTimeToUnixAndViceVersa(t *testing.T) {
 	 * THEN initial sample should be equal with final result
 	 */
 	t.Parallel()
-	var initial_sample DateTime = DateTime{Common{Type: DateTimeStructName}, 2024, 2, 29, 12, 0}
 
-	step, _ := dateTimeToUnix(&initial_sample)
-	result, _ := unixToDateTime(&step)
+	initialSample := DateTime{Common{Type: DateTimeStructName}, 2024, 2, 29, 12, 0}
 
-	assert.Equal(t, result.Year, initial_sample.Year)
-	assert.Equal(t, result.Month, initial_sample.Month)
-	assert.Equal(t, result.Day, initial_sample.Day)
-	assert.Equal(t, result.Hour, initial_sample.Hour)
-	assert.Equal(t, result.Minute, initial_sample.Minute)
+	step, err := dateTimeToUnix(&initialSample)
+
+	assert.NoError(t, err)
+
+	result, err := unixToDateTime(&step)
+
+	assert.NoError(t, err)
+	assert.Equal(t, result.Year, initialSample.Year)
+	assert.Equal(t, result.Month, initialSample.Month)
+	assert.Equal(t, result.Day, initialSample.Day)
+	assert.Equal(t, result.Hour, initialSample.Hour)
+	assert.Equal(t, result.Minute, initialSample.Minute)
 }

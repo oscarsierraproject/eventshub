@@ -6,12 +6,12 @@ package xmlparser
 
 import (
 	"bytes"
-	logger "eventshub/logging"
-	v1rest "eventshub/service/v1/rest"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/xml"
+	logger "eventshub/logging"
+	v1rest "eventshub/service/v1/rest"
 	"fmt"
 	"io"
 	"log"
@@ -163,12 +163,12 @@ func (parser *XMLEventsParser) postEvent(e v1rest.EventData) {
 	for retry := 3; retry <= 3; retry++ {
 		switch resp.StatusCode {
 		case http.StatusOK:
-			parser.log.Debug("Successfully added event with UUID ", e.Uuid)
+			parser.log.Debug("Successfully added event with UUID ", e.UUID)
 		case http.StatusUnauthorized:
 			parser.getToken()
 			parser.log.Info("Unauthorized. Refreshing token.")
 		default:
-			parser.log.Info("Failed to add event with UUID ", e.Uuid)
+			parser.log.Info("Failed to add event with UUID ", e.UUID)
 		}
 	}
 }

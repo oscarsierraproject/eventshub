@@ -5,28 +5,28 @@ package v1rest
 // Created: August 18, 2024
 
 import (
-	logger "eventshub/logging"
 	"database/sql"
+	logger "eventshub/logging"
 	"time"
 
+	// SQLite driver
 	_ "github.com/mattn/go-sqlite3"
 )
 
 var (
-	SQL_FILE string = "file::memory:?cache=shared"
-	DB       *sql.DB
+	SQLFile = "file::memory:?cache=shared"
 )
 
 type DatabaseRepo interface {
 	AddUser(user string, password string, hashed bool) error
 	AuthenticateUser(user string, password string) (bool, error)
 	Close()
-	DeleteEvent(e EventData) (bool, error)
+	DeleteEvent(e *EventData) (bool, error)
 	GetAllEvents() ([]EventData, error)
 	GetEventsByTimeRange(start, end int64) ([]EventData, error)
-	GetEventByUuid(uuid string) (EventData, error)
+	GetEventByUUID(uuid string) (EventData, error)
 	GetStatus() (GetStatusResp, error)
-	InsertEvent(e EventData) (EventData, error)
+	InsertEvent(e *EventData) (*EventData, error)
 	Migrate() error
 }
 
@@ -42,13 +42,13 @@ func NewSQLiteRepository(db *sql.DB) *SQLiteRepository {
 	}
 }
 
-func (r *SQLiteRepository) insertEvent(e EventData) (EventData, error) {
+func (r *SQLiteRepository) insertEvent(e *EventData) (*EventData, error) {
 	/* Insert event to database. */
 	var (
 		err            error
 		result         sql.Result
 		statement      *sql.Stmt
-		insertEventSQL string = `
+		insertEventSQL = `
 			INSERT INTO events (
 				version, uuid, title, 
 				start, end, address, 
@@ -57,10 +57,11 @@ func (r *SQLiteRepository) insertEvent(e EventData) (EventData, error) {
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 		`
 	)
+
 	statement, err = r.db.Prepare(insertEventSQL)
 	if err != nil {
 		r.log.Error(err)
-		return EventData{}, err
+		return nil, err
 	}
 
 	start, _ := dateTimeToUnix(&e.Start)
@@ -69,29 +70,37 @@ func (r *SQLiteRepository) insertEvent(e EventData) (EventData, error) {
 	important := Btoi(e.Important)
 	urgent := Btoi(e.Urgent)
 
-	result, err = statement.Exec(e.Version, e.Uuid, e.Title, start, end, e.Address, e.Info, e.Reminder, done, important, urgent, e.Source)
+	result, err = statement.Exec(e.Version, e.UUID, e.Title, start, end, e.Address, e.Info, e.Reminder, done, important, urgent, e.Source)
 	if err != nil {
 		r.log.Error(err)
-		return EventData{}, err
+		return nil, err
 	}
 
 	id, err := result.LastInsertId()
+
 	if err != nil {
 		r.log.Error("Failed to get LastID.", err)
-		return EventData{}, err
+
+		return nil, err
 	}
 
-	e.Id = id
-	r.updateStatus()
+	e.ID = id
+
+	err = r.updateStatus()
+	if err != nil {
+		r.log.Error(err)
+		return nil, err
+	}
+
 	return e, nil
 }
 
-func (r *SQLiteRepository) updateEvent(e EventData) (EventData, error) {
+func (r *SQLiteRepository) updateEvent(e *EventData) (*EventData, error) {
 	/* Update existing event with latest data */
 	var (
 		err            error
 		statement      *sql.Stmt
-		updateEventSQL string = `
+		updateEventSQL = `
 		UPDATE events
 		SET
 			version = ?, 
@@ -113,7 +122,7 @@ func (r *SQLiteRepository) updateEvent(e EventData) (EventData, error) {
 	statement, err = r.db.Prepare(updateEventSQL)
 	if err != nil {
 		r.log.Error(err)
-		return EventData{}, err
+		return nil, err
 	}
 
 	start, _ := dateTimeToUnix(&e.Start)
@@ -122,12 +131,20 @@ func (r *SQLiteRepository) updateEvent(e EventData) (EventData, error) {
 	important := Btoi(e.Important)
 	urgent := Btoi(e.Urgent)
 
-	_, err = statement.Exec(e.Version, e.Title, start, end, e.Address, e.Info, e.Reminder, done, important, urgent, e.Source, e.Uuid)
+	_, err = statement.Exec(e.Version, e.Title, start, end, e.Address, e.Info, e.Reminder, done, important, urgent, e.Source, e.UUID)
 	if err != nil {
 		r.log.Error(err)
-		return EventData{}, err
+
+		return nil, err
 	}
-	r.updateStatus()
+
+	err = r.updateStatus()
+	if err != nil {
+		r.log.Error(err)
+
+		return nil, err
+	}
+
 	return e, nil
 }
 
@@ -136,8 +153,9 @@ func (r *SQLiteRepository) updateStatus() error {
 	var (
 		err             error
 		statement       *sql.Stmt
-		updateStatusSQL string = `INSERT INTO status (timestamp, version) VALUES (?, ?)`
+		updateStatusSQL = `INSERT INTO status (timestamp, version) VALUES (?, ?)`
 	)
+
 	statement, err = r.db.Prepare(updateStatusSQL)
 	if err != nil {
 		r.log.Error(err)
@@ -155,14 +173,15 @@ func (r *SQLiteRepository) updateStatus() error {
 	return nil
 }
 
-func (r *SQLiteRepository) AddUser(user string, password string, hashed bool) error {
+func (r *SQLiteRepository) AddUser(user, password string, hashed bool) error {
 	/* Add new user to database */
 	var (
 		err           error
 		hash          string
 		statement     *sql.Stmt
-		insertUserSQL string = "INSERT INTO users (username, password) VALUES (?, ?);"
+		insertUserSQL = "INSERT INTO users (username, password) VALUES (?, ?);"
 	)
+
 	if !hashed {
 		hash, err = hashPassword(password)
 		if err != nil {
@@ -184,10 +203,11 @@ func (r *SQLiteRepository) AddUser(user string, password string, hashed bool) er
 		r.log.Error(err)
 		return err
 	}
+
 	return nil
 }
 
-func (r *SQLiteRepository) AuthenticateUser(username string, password string) (bool, error) {
+func (r *SQLiteRepository) AuthenticateUser(username, password string) (bool, error) {
 	/* Authenticate user  */
 	var (
 		err  error
@@ -217,20 +237,21 @@ func (r *SQLiteRepository) Close() {
 	r.db.Close()
 }
 
-func (r *SQLiteRepository) DeleteEvent(e EventData) (bool, error) {
+func (r *SQLiteRepository) DeleteEvent(e *EventData) (bool, error) {
 	/* Delete event based on Event UUID */
 	var (
-		deleteEventSQL string = "DELETE FROM events WHERE uuid = ?;"
+		deleteEventSQL = "DELETE FROM events WHERE uuid = ?;"
 		err            error
 		statement      *sql.Stmt
 	)
+
 	statement, err = r.db.Prepare(deleteEventSQL)
 	if err != nil {
 		r.log.Error(err)
 		return false, err
 	}
 
-	_, err = statement.Exec(e.Uuid)
+	_, err = statement.Exec(e.UUID)
 	if err != nil {
 		r.log.Error(err)
 		return false, err
@@ -250,6 +271,7 @@ func (r *SQLiteRepository) GetAllEvents() ([]EventData, error) {
 		r.log.Error(err)
 		return nil, err
 	}
+
 	defer rows.Close()
 
 	for rows.Next() {
@@ -261,6 +283,7 @@ func (r *SQLiteRepository) GetAllEvents() ([]EventData, error) {
 
 		result = append(result, e)
 	}
+
 	return result, nil
 }
 
@@ -275,6 +298,7 @@ func (r *SQLiteRepository) GetEventsByTimeRange(start, end int64) ([]EventData, 
 		r.log.Error(err)
 		return nil, err
 	}
+
 	defer rows.Close()
 
 	for rows.Next() {
@@ -286,25 +310,30 @@ func (r *SQLiteRepository) GetEventsByTimeRange(start, end int64) ([]EventData, 
 
 		result = append(result, e)
 	}
+
 	return result, nil
 }
 
-func (r *SQLiteRepository) GetEventByUuid(uuid string) (EventData, error) {
+func (r *SQLiteRepository) GetEventByUUID(uuid string) (EventData, error) {
 	/* Return events based on UUID. */
 	rows, err := r.db.Query("SELECT * FROM events WHERE uuid = ?", uuid)
+
 	if err != nil {
-		return EventData{}, err
+		return EventData{Common: Common{Type: EventDataStructName}}, err
 	}
+
 	defer rows.Close()
 
-	for rows.Next() {
+	if rows.Next() {
 		e, err := convertRawEventRecordToEventData(rows)
 		if err != nil {
 			r.log.Error(err)
 			return EventData{Common: Common{Type: EventDataStructName}}, err
 		}
+
 		return e, nil
 	}
+
 	return EventData{Common: Common{Type: EventDataStructName}}, nil
 }
 
@@ -315,62 +344,76 @@ func (r *SQLiteRepository) GetStatus() (GetStatusResp, error) {
 	)
 
 	resp.Common = Common{Type: ResponseStatusName}
+
 	rows, err := r.db.Query("SELECT timestamp, version FROM status WHERE ROWID IN ( SELECT max( ROWID ) FROM status);")
 	if err != nil {
 		r.log.Error(err)
 		resp.Status = ResponseStatus{Common{ResponseStatusName}, false, err.Error()}
+
 		return resp, err
 	}
+
 	defer rows.Close()
 
 	for rows.Next() {
 		if err := rows.Scan(&resp.Timestamp, &resp.Version); err != nil {
 			r.log.Error(err)
 			resp.Status = ResponseStatus{Common{ResponseStatusName}, false, err.Error()}
+
 			return GetStatusResp{}, err
 		}
 	}
 
 	resp.Status = ResponseStatus{Common{ResponseStatusName}, true, ""}
+
 	return resp, nil
 }
 
-func (r *SQLiteRepository) InsertEvent(e EventData) (EventData, error) {
+func (r *SQLiteRepository) InsertEvent(e *EventData) (*EventData, error) {
 	/* Insert new event into database, or update existing one.
 	 * Event will be updated if database contains different event with same UUID.
 	 * Event will be inserted is event UUID is unique in database.
 	 */
 	var (
-		err      error
-		db_event EventData
+		err     error
+		dbEvent EventData
 	)
 
-	rows, err := r.db.Query("SELECT * FROM events WHERE uuid = ?", e.Uuid)
+	rows, err := r.db.Query("SELECT * FROM events WHERE uuid = ?", e.UUID)
 	if err != nil {
 		r.log.Error(err)
 		return e, err
 	}
 
-	for rows.Next() {
+	if rows.Next() {
 		/* Event exist in database. Check if update is needed */
-		db_event, err = convertRawEventRecordToEventData(rows)
+		dbEvent, err = convertRawEventRecordToEventData(rows)
 		if err != nil {
 			r.log.Error(err)
 			return e, err
 		}
 
 		rows.Close()
-		e.Id = db_event.Id
+
+		e.ID = dbEvent.ID
 
 		/* Check if passed event has some changes that requires update */
-		if db_event.Sha256() == e.Sha256() {
+		if dbEvent.Sha256() == e.Sha256() {
 			return e, nil
 		}
 
-		return r.updateEvent(e)
+		//nolint:govet //Event returned is same event that is passed with additional data like ID
+		e, err := r.updateEvent(e)
+		if err != nil {
+			r.log.Error(err)
+			return e, err
+		}
+
+		return e, nil
 	}
 
 	rows.Close()
+
 	return r.insertEvent(e)
 }
 
@@ -378,7 +421,7 @@ func (r *SQLiteRepository) Migrate() error {
 	/* This database is in memory database. Create database structure from scratch. */
 	var (
 		err             error
-		createEventsSQL string = `
+		createEventsSQL = `
 		CREATE TABLE IF NOT EXISTS events (
 			id INTEGER PRIMARY KEY,
 			version VARCHAR(16),
@@ -394,13 +437,13 @@ func (r *SQLiteRepository) Migrate() error {
 			urgent INTEGER,
 			source VARCHAR(255))
 		`
-		createUsersSQL string = `
+		createUsersSQL = `
 		CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY,
 			username VARCHAR(64),
 			password VARCHAR(64));
 		`
-		createStatusSQL string = `
+		createStatusSQL = `
 		CREATE TABLE IF NOT EXISTS status (
 			id INTEGER PRIMARY KEY,
 			timestamp INTEGER,
@@ -408,31 +451,57 @@ func (r *SQLiteRepository) Migrate() error {
 		`
 		statement *sql.Stmt
 	)
+
 	statement, err = r.db.Prepare(createEventsSQL)
 	if err != nil {
-		r.log.Critical("Failed to create table 'events'.")
-	} else {
-		r.log.Info("Successfully created table 'events'.")
+		r.log.Critical("Failed to create table 'events'." + err.Error())
+		return err
 	}
-	statement.Exec()
+
+	_, err = statement.Exec()
+	if err != nil {
+		r.log.Critical("Failed to create table 'events'." + err.Error())
+		return err
+	}
+
+	r.log.Info("Successfully created table 'events'.")
 
 	statement, err = r.db.Prepare(createUsersSQL)
 	if err != nil {
-		r.log.Critical("Failed to create table 'users'.")
-	} else {
-		r.log.Info("Successfully created table 'users'.")
+		r.log.Critical("Failed to create table 'users'." + err.Error())
+		return err
 	}
-	statement.Exec()
+
+	_, err = statement.Exec()
+	if err != nil {
+		r.log.Critical("Failed to create table 'users'." + err.Error())
+
+		return err
+	}
+
+	r.log.Info("Successfully created table 'users'.")
 
 	statement, err = r.db.Prepare(createStatusSQL)
 	if err != nil {
-		r.log.Critical("Failed to create table 'status'.")
-	} else {
-		r.log.Info("Successfully created table 'status'.")
+		r.log.Critical("Failed to create table 'status'." + err.Error())
+		return err
 	}
-	statement.Exec()
 
-	r.updateStatus()
+	_, err = statement.Exec()
+	if err != nil {
+		r.log.Error(err)
+
+		return err
+	}
+
+	r.log.Info("Successfully created table 'status'.")
+
+	err = r.updateStatus()
+	if err != nil {
+		r.log.Error(err)
+
+		return err
+	}
 
 	return nil
 }

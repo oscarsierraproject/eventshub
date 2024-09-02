@@ -7,17 +7,22 @@ package v1rest
 import (
 	"crypto/sha256"
 	"fmt"
+	"time"
 )
 
 const (
-	DateTimeStructName       string = "DateTime"
-	EventDataStructName      string = "EventData"
-	ResponseStatusName       string = "ResponseStatus"
-	AddEventRespName         string = "AddEventResp"
-	GetEventCheckSumRespName string = "GetEventCheckSumResp"
-	GetEventsRespName        string = "GetEventsResp"
-	GetStatusRespName        string = "GetStatusResp"
-	Version                  string = "v1.1.0"
+	DateTimeStructName       string        = "DateTime"
+	EventDataStructName      string        = "EventData"
+	ResponseStatusName       string        = "ResponseStatus"
+	AddEventRespName         string        = "AddEventResp"
+	GetEventCheckSumRespName string        = "GetEventCheckSumResp"
+	GetEventsRespName        string        = "GetEventsResp"
+	GetStatusRespName        string        = "GetStatusResp"
+	InvalidTokenRespName     string        = "InvalidTokenResp"
+	KillRespName             string        = "KillResp"
+	Version                  string        = "v1.1.0"
+	VersionRespName          string        = "VersionResp"
+	GracefulShutdownTimeout  time.Duration = 2 * time.Second
 )
 
 type Common struct {
@@ -38,11 +43,12 @@ type DateTime struct {
 	Minute int32 `json:"minute"`
 }
 
+//nolint:govet //All structs should have similar attributes order
 type EventData struct {
 	Common
-	Id        int64    `json:"id"`
+	ID        int64    `json:"id"`
 	Version   string   `json:"version"`
-	Uuid      string   `json:"uuid"`
+	UUID      string   `json:"uuid"`
 	Title     string   `json:"title"`
 	Start     DateTime `json:"start"`
 	End       DateTime `json:"end"`
@@ -70,30 +76,17 @@ func (e *EventData) ToString() string {
 	// Parameter: EventData object (self).
 	// Return type: string.
 	result := fmt.Sprintf(
-		"Version: %s, Uuid: %s, Title: %s, Start: %v, End: %v, Address: %s, Info: %s, Reminder: %d, Done: %t, Important: %t, Urgent: %t",
-		e.Version, e.Uuid, e.Title, e.Start, e.End, e.Address, e.Info, e.Reminder, e.Done, e.Important, e.Urgent)
+		"Version: %s, UUID: %s, Title: %s, Start: %v, End: %v, Address: %s, Info: %s, Reminder: %d, Done: %t, Important: %t, Urgent: %t",
+		e.Version, e.UUID, e.Title, e.Start, e.End, e.Address, e.Info, e.Reminder, e.Done, e.Important, e.Urgent)
+
 	return result
 }
 
+//nolint:govet //All structs should have similar attributes order
 type ResponseStatus struct {
 	Common
 	Success bool   `json:"success"`
 	Message string `json:"message"`
-}
-
-func (rs *ResponseStatus) setSuccess(value bool) {
-	// setSuccess sets the success status of the ResponseStatus object.
-	//
-	// Parameter: value (bool) - the success status to be set.
-	// Return type: none.
-	rs.Success = value
-}
-
-func (rs *ResponseStatus) setMessage(value string) {
-	// setMessage sets the message field of the ResponseStatus struct.
-	//
-	// value: the new value to set.
-	rs.Message = value
 }
 
 type AddEventReq struct {
@@ -102,11 +95,11 @@ type AddEventReq struct {
 
 type AddEventResp struct {
 	Common
-	Success bool `json:"success"`
+	Status ResponseStatus `json:"status"`
 }
 
 type GetEventCheckSumReq struct {
-	Uuid string `json:"uuid"`
+	UUID string `json:"uuid"`
 }
 
 type GetEventCheckSumResp struct {
@@ -120,6 +113,7 @@ type GetEventsReq struct {
 	End   DateTime `json:"end"`
 }
 
+//nolint:govet //All structs should have similar attributes order
 type GetEventsResp struct {
 	Common
 	Events []EventData    `json:"events"`
@@ -129,6 +123,7 @@ type GetEventsResp struct {
 type GetStatusReq struct {
 }
 
+//nolint:govet //All structs should have similar attributes order
 type GetStatusResp struct {
 	Common
 	Timestamp int64          `json:"timestamp"`
@@ -136,11 +131,17 @@ type GetStatusResp struct {
 	Version   string         `json:"version"`
 }
 
+type InvalidTokenResp struct {
+	Common
+	Status ResponseStatus `json:"status"`
+}
+
 type KillReq struct {
 	Payload string `json:"payload"`
 }
 
 type KillResp struct {
+	Common
 	Status ResponseStatus `json:"status"`
 }
 
@@ -148,6 +149,8 @@ type TokenMsg struct {
 	Token string `json:"token"`
 }
 
-type VersionMsg struct {
-	Version string `json:"version"`
+type VersionResp struct {
+	Common
+	Status  ResponseStatus `json:"status"`
+	Version string         `json:"version"`
 }

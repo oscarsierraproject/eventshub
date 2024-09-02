@@ -5,25 +5,30 @@ package v1rest
 // Created: August 18, 2024
 
 import (
-	logger "eventshub/logging"
 	"context"
 	"database/sql"
 	"errors"
+	logger "eventshub/logging"
 	"net/http"
 	"os"
 	"time"
 )
 
 const (
-	VERSION string = "1.0.0"
+	IdleTimeout       time.Duration = 60 * time.Second
+	ReadHeaderTimeout time.Duration = 2 * time.Second
+	ReadTimeout       time.Duration = 1 * time.Second
+	ShutdownTimeout   time.Duration = 10 * time.Second
+	WriteTimeout      time.Duration = 5 * time.Second
+	VERSION           string        = "1.1.0"
 )
 
 type HTTPRestServer struct {
-	db             DatabaseRepo
-	log            *logger.ConsoleLogger
-	server         *http.Server
-	sigs           chan os.Signal
-	deadly_package string
+	db            DatabaseRepo
+	log           *logger.ConsoleLogger
+	server        *http.Server
+	sigs          chan os.Signal
+	deadlyPackage string
 }
 
 func (srv *HTTPRestServer) Configure(sigs chan os.Signal) {
@@ -47,64 +52,79 @@ func (srv *HTTPRestServer) Configure(sigs chan os.Signal) {
 	mux.HandleFunc("/api/v1/ki11s3rv3rn0w", srv.killserver)
 
 	host := os.Getenv("GOCALENDAR_HOST")
+
 	if host == "" {
-		err := errors.New("failed to obtain host")
+		err = errors.New("failed to obtain host")
 		srv.log.Critical(err)
 		panic(err)
 	}
 
 	port := os.Getenv("GOCALENDAR_PORT")
+
 	if port == "" {
-		err := errors.New("failed to obtain port")
+		err = errors.New("failed to obtain port")
 		srv.log.Critical(err)
 		panic(err)
 	}
 
-	if deadly_package := os.Getenv("GOCALENDAR_DEADLY_PACKAGE"); deadly_package == "" {
-		err := errors.New("failed to obtain deadly package")
+	if deadlyPackage := os.Getenv("GOCALENDAR_DEADLY_PACKAGE"); deadlyPackage == "" {
+		err = errors.New("failed to obtain deadly package")
 		srv.log.Critical(err)
-		panic(err)
 	} else {
-		srv.deadly_package = deadly_package
+		srv.deadlyPackage = deadlyPackage
 	}
 
 	srv.log.Info("Server will listen on ", host, ":", port)
 
 	srv.server = &http.Server{
-		Addr:    host + ":" + port,
-		Handler: mux,
+		ReadTimeout:       ReadTimeout,
+		WriteTimeout:      WriteTimeout,
+		IdleTimeout:       IdleTimeout,
+		ReadHeaderTimeout: ReadHeaderTimeout,
+		Addr:              host + ":" + port,
+		Handler:           mux,
 	}
 
-	db, err = sql.Open("sqlite3", SQL_FILE)
+	db, err = sql.Open("sqlite3", SQLFile)
 	if err != nil {
 		srv.log.Critical(err)
 		panic(err)
 	}
 
 	srv.db = NewSQLiteRepository(db)
-	srv.db.Migrate()
+
+	err = srv.db.Migrate()
+	if err != nil {
+		srv.log.Critical(err)
+		panic(err)
+	}
 
 	/* Store hashed password for the user */
-	admin_username := os.Getenv("GOCALENDAR_ADMIN_USERNAME")
-	if admin_username == "" {
-		err := errors.New("failed to obtain admin_username")
+	adminUsername := os.Getenv("GOCALENDAR_ADMIN_USERNAME")
+	if adminUsername == "" {
+		err = errors.New("failed to obtain adminUsername")
 		srv.log.Critical(err)
 		panic(err)
 	}
 
-	admin_hash := os.Getenv("GOCALENDAR_ADMIN_HASH")
-	if admin_hash == "" {
-		err := errors.New("failed to obtain admin_hash")
+	adminHash := os.Getenv("GOCALENDAR_ADMIN_HASH")
+	if adminHash == "" {
+		err = errors.New("failed to obtain adminHash")
 		srv.log.Critical(err)
 		panic(err)
 	}
 
-	srv.db.AddUser(admin_username, admin_hash, true)
+	err = srv.db.AddUser(adminUsername, adminHash, true)
+	if err != nil {
+		srv.log.Critical(err)
+		panic(err)
+	}
 }
 
 func (srv *HTTPRestServer) Start() {
 	/* Starts HTTPRestServer as a goroutine. */
 	srv.log.Warning("USING NOT SECURE PROTOCOL.")
+
 	go func() {
 		err := srv.server.ListenAndServe()
 		if errors.Is(err, http.ErrServerClosed) {
@@ -118,27 +138,34 @@ func (srv *HTTPRestServer) Start() {
 func (srv *HTTPRestServer) StartTLS() {
 	/* Starts HTTPRestServer as a goroutine. */
 	srv.log.Info("Starting TLS server.")
+
 	go func() {
 		certificatePath := os.Getenv("GOCALENDAR_OPENSSL_CALENDAR_CERTIFICATE")
 		privatekeyPath := os.Getenv("GOCALENDAR_OPENSSL_CALENDAR_SIGNING_KEY")
+
 		err := srv.server.ListenAndServeTLS(certificatePath, privatekeyPath)
 		if errors.Is(err, http.ErrServerClosed) {
 			srv.log.Error("HTTP REST Server is closed. ", err)
 		} else if err != nil {
 			srv.log.Error("HTTP REST Server error while listening. ", err)
 		}
+
 		srv.log.Warning("Stopped serving new connections")
 	}()
 }
 
 func (srv *HTTPRestServer) Stop() error {
 	srv.log.Warning("Shutting down server.")
-	shutdownCtx, shutdownRelease := context.WithTimeout(context.Background(), 10*time.Second)
+
+	shutdownCtx, shutdownRelease := context.WithTimeout(context.Background(), ShutdownTimeout)
+
 	defer shutdownRelease()
 
 	if err := srv.server.Shutdown(shutdownCtx); err != nil {
 		srv.log.Error("HTTP shutdown error: ", err)
 	}
+
 	srv.log.Info("Graceful shutdown complete.")
+
 	return nil
 }

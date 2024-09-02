@@ -8,16 +8,76 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"syscall"
 	"time"
 )
 
+// Send a JSON response to the client. It takes a response object and marshals it to JSON.
+// If the marshaling fails, it logs the error and returns.
+// If the write to the client fails, it logs the error.
+func (srv *HTTPRestServer) send(resp any, w http.ResponseWriter, _ *http.Request) {
+	var (
+		byteResp []byte
+		err      error
+	)
+
+	byteResp, err = json.Marshal(resp)
+	if err != nil {
+		srv.log.Error("Marshaling data failed:", err)
+		return
+	}
+
+	_, err = w.Write(byteResp)
+	if err != nil {
+		srv.log.Error("Writing data failed:", err)
+	}
+}
+
+// invalidTokenResponse sends a JSON response to the client with a 401 Unauthorized status code.
+// The response body contains a JSON object with a single "status" field that describes the error.
+func (srv *HTTPRestServer) invalidTokenResponse(w http.ResponseWriter, r *http.Request, reason error) {
+	var (
+		resp InvalidTokenResp
+	)
+
+	w.WriteHeader(http.StatusUnauthorized)
+	w.Header().Set("Content-Type", "application/json")
+
+	resp = InvalidTokenResp{
+		Common: Common{
+			Type: InvalidTokenRespName,
+		},
+		Status: ResponseStatus{
+			Success: false,
+			Message: fmt.Sprintf("%s", reason),
+		},
+	}
+
+	srv.send(resp, w, r)
+}
+
+/*
+loginHandler is an HTTP handler which handles login requests. It checks
+if the provided user credentials are valid and returns a JWT token if
+login is successful. Otherwise, it returns an error message.
+
+Handler responds to POST requests only.
+
+Example request body:
+
+	{
+		"username": "admin",
+		"password": "admin"
+	}
+
+Example response:
+
+	{
+		"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImFkbWluIiwiaWF0IjoxNjM4NjgzODUyfQ.0lq8Z2jwZp4J0hWZ9rj0X7g7nAa9JpFf4J6kT5mO3lA"
+	}
+*/
 func (srv *HTTPRestServer) loginHandler(writer http.ResponseWriter, request *http.Request) {
-	/* Check if sent user credentials are valid. Respond with JWT if
-	 * login is successful, or with error message otherwise.
-	 */
 	var (
 		authenticated bool
 		err           error
@@ -27,300 +87,408 @@ func (srv *HTTPRestServer) loginHandler(writer http.ResponseWriter, request *htt
 	switch request.Method {
 	case "POST":
 		err = json.NewDecoder(request.Body).Decode(&user)
+
 		if err != nil {
-			fmt.Println(err)
+			srv.log.Warning(err)
 			fmt.Fprintf(writer, "Invalid or corrupted request!")
+
 			return
 		}
-		authenticated, _ = srv.db.AuthenticateUser(user.Username, user.Password)
+
+		authenticated, err = srv.db.AuthenticateUser(user.Username, user.Password)
 		if !authenticated {
-			fmt.Println("Not enough mana!")
+			srv.log.Info("Not enough mana!")
+			fmt.Fprintf(writer, "Not enough mana!")
+
+			return
+		} else if err != nil {
+			srv.log.Error(err)
+			fmt.Fprintf(writer, "%s", err)
+
 			return
 		}
+
 		writer.WriteHeader(http.StatusOK)
 
 		token, err := createJWT(user.Username)
 		if err != nil {
+			srv.log.Error(err)
 			fmt.Fprintf(writer, "%s", err)
 		}
+
 		data := TokenMsg{Token: token}
+
 		jsonData, err := json.Marshal(data)
 		if err != nil {
-			log.Fatalf("Marshaling data failed: %s", err.Error())
+			srv.log.Error("Marshaling data failed:", err)
+			return
 		}
-		writer.Write(jsonData)
+
+		_, err = writer.Write(jsonData)
+		if err != nil {
+			srv.log.Error("Writing data failed:", err)
+			return
+		}
+
 		return
 
 	default:
-		fmt.Fprintf(writer, "%s is not implemented.", request.Method)
+		srv.log.Error("Method not implemented!", request.Method)
+		fmt.Fprintf(writer, "%s method not implemented!", request.Method)
+
 		return
 	}
 }
 
+/* Handle a request to the /api/v1/version endpoint. */
+/* Returns server version in JSON format. */
+/* If JWT token is invalid, returns 401 with error message. */
 func (srv *HTTPRestServer) serverVersionHandler(w http.ResponseWriter, r *http.Request) {
-	/* Respond to server status request. */
 	w.Header().Set("Content-Type", "application/json")
 
 	err := validateJWT(w, r)
 	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		resp := make(map[string]string)
-		resp["message"] = fmt.Sprint(err)
-		jsonResp, err := json.Marshal(resp)
-		if err != nil {
-			log.Fatalf("Error happened in JSON marshal. Err: %s", err)
-		}
-		w.Write(jsonResp)
+		srv.invalidTokenResponse(w, r, err)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	data := VersionMsg{Version: Version}
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		log.Fatalf("Marshaling data failed: %s", err.Error())
+
+	resp := VersionResp{
+		Common: Common{
+			Type: VersionRespName,
+		},
+		Status: ResponseStatus{
+			Success: true,
+			Message: "",
+		},
+		Version: Version,
 	}
-	w.Write(jsonData)
+
+	srv.send(resp, w, r)
 }
 
+/*
+Get event check sum
+
+Handler responds to GET requests only.
+
+Example request:
+
+	GET /api/v1/checksum?uuid=<uuid>
+
+Example response:
+
+	{
+		"sum": "0b2dd0f43614138995beafa87b6356b",
+		"status": {
+			"type": "ResponseStatus",
+			"success": true,
+			"message": ""
+		}
+	}
+*/
 func (srv *HTTPRestServer) getEventCheckSum(w http.ResponseWriter, r *http.Request) {
-	/* Get event check sum */
 	var (
 		err      error
 		event    EventData
 		response GetEventCheckSumResp
 	)
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+
 	err = validateJWT(w, r)
 	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		resp := make(map[string]string)
-		resp["message"] = fmt.Sprint(err)
-		jsonResp, err := json.Marshal(resp)
-		if err != nil {
-			log.Fatalf("Error happened in JSON marshal. Err: %s", err)
-		}
-		w.Write(jsonResp)
+		srv.invalidTokenResponse(w, r, err)
+
 		return
 	}
 
-	var msg_data GetEventCheckSumReq
-	err = json.NewDecoder(r.Body).Decode(&msg_data)
-	if err != nil {
-		log.Fatal(err)
-	}
+	var msgData GetEventCheckSumReq
 
-	w.Header().Set("Content-Type", "application/json")
-
-	event, err = srv.db.GetEventByUuid(msg_data.Uuid)
+	err = json.NewDecoder(r.Body).Decode(&msgData)
 	if err != nil {
-		log.Fatal(err)
+		srv.log.Error(err)
 	}
 
 	response.Common = Common{Type: GetEventCheckSumRespName}
-	response.Sum = fmt.Sprintf("%x", event.Sha256())
-	response.Status = ResponseStatus{Common: Common{Type: ResponseStatusName}, Success: true, Message: ""}
 
-	w.WriteHeader(http.StatusOK)
-	jsonData, err := json.Marshal(response)
+	event, err = srv.db.GetEventByUUID(msgData.UUID)
 	if err != nil {
-		log.Fatalf("Marshaling data failed: %s", err.Error())
+		srv.log.Error(err)
+		response.Status = ResponseStatus{Common: Common{Type: ResponseStatusName}, Success: false, Message: fmt.Sprintf("%s", err)}
+		response.Sum = fmt.Sprintf("%x", 0)
+	} else {
+		response.Status = ResponseStatus{Common: Common{Type: ResponseStatusName}, Success: true, Message: ""}
+		response.Sum = fmt.Sprintf("%x", event.Sha256())
 	}
-	w.Write(jsonData)
+
+	srv.send(response, w, r)
 }
 
+// getStatus handles a request to the /api/v1/status endpoint.
+// Returns current server status in JSON format.
+// If any error occurs, returns 500 with error message
 func (srv *HTTPRestServer) getStatus(w http.ResponseWriter, r *http.Request) {
-	/* Get event check sum */
 	var (
-		err      error
-		response GetStatusResp
+		err  error
+		resp GetStatusResp
 	)
 
+	responseWithError := func(w http.ResponseWriter, msg string) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+
+		resp = GetStatusResp{
+			Common:    Common{Type: GetStatusRespName},
+			Timestamp: time.Now().Unix(),
+			Status:    ResponseStatus{Common: Common{ResponseStatusName}, Success: false, Message: msg},
+			Version:   Version,
+		}
+
+		srv.send(resp, w, r)
+	}
+
+	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
 
-	response, err = srv.db.GetStatus()
+	resp, err = srv.db.GetStatus()
 	if err != nil {
-		log.Fatal(err)
-		response.Status.Success = false
-		response.Status.Message = fmt.Sprintf("%s", err)
-	} else {
-		response.Status.Success = true
-		response.Status.Message = ""
+		srv.log.Error(err)
+		responseWithError(w, fmt.Sprintf("%s", err))
 	}
-	response.Type = GetStatusRespName
 
-	w.WriteHeader(http.StatusOK)
-	jsonData, err := json.Marshal(response)
-	if err != nil {
-		log.Fatalf("Marshaling data failed: %s", err.Error())
-	}
-	w.Write(jsonData)
+	srv.send(resp, w, r)
 }
 
+/*
+insertEvent handles a request to the /api/v1/insertEvent endpoint.
+Takes EventData as JSON, inserts it into database and returns
+response with inserted event UUID or error message.
+
+Example request:
+
+	POST /api/v1/insertEvent
+	{
+		"event": {
+			"title": "New event",
+			"start": "2024-02-13T12:00:00Z",
+			"end": "2024-02-13T12:00:00Z",
+			"address": "Warszawa, ul. Okrężna 26",
+			"info": "Some event info",
+			"reminder": 7,
+			"done": false,
+			"important": true,
+			"urgent": false,
+			"source": "APP"
+		}
+	}
+
+Example response:
+
+	{
+		"common": {
+			"type": "AddEventResp"
+		},
+		"status": {
+			"type": "ResponseStatus",
+			"success": true,
+			"message": ""
+		}
+	}
+*/
 func (srv *HTTPRestServer) insertEvent(w http.ResponseWriter, r *http.Request) {
-	/* Create a random event */
 	var (
-		err      error
-		response AddEventResp
+		err  error
+		resp AddEventResp
 	)
+
+	responseWithError := func(w http.ResponseWriter, msg string) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+
+		resp = AddEventResp{
+			Common: Common{Type: AddEventRespName},
+			Status: ResponseStatus{Common: Common{ResponseStatusName}, Success: false, Message: msg},
+		}
+
+		srv.send(resp, w, r)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
 
 	err = validateJWT(w, r)
 	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		resp := make(map[string]string)
-		resp["message"] = fmt.Sprint(err)
-		jsonResp, err := json.Marshal(resp)
-		if err != nil {
-			log.Fatalf("Error happened in JSON marshal. Err: %s", err)
-		}
-		w.Write(jsonResp)
+		srv.invalidTokenResponse(w, r, err)
 		return
 	}
 
-	var msg_data AddEventReq
-	err = json.NewDecoder(r.Body).Decode(&msg_data)
+	var msgData AddEventReq
+
+	err = json.NewDecoder(r.Body).Decode(&msgData)
 	if err != nil {
-		log.Fatal(err)
+		responseWithError(w, fmt.Sprintf("%s", err))
+		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-
-	result, err := srv.db.InsertEvent(msg_data.Event)
+	result, err := srv.db.InsertEvent(&msgData.Event)
 	if err != nil {
-		log.Panic(err)
+		srv.log.Error(err)
+		responseWithError(w, fmt.Sprintf("%s", err))
+
+		return
 	}
 
-	response.Common = Common{Type: AddEventRespName}
-	if result.Uuid == msg_data.Event.Uuid {
-		response = AddEventResp{Success: true}
+	resp.Common = Common{Type: AddEventRespName}
+	if result.UUID == msgData.Event.UUID {
+		resp.Status = ResponseStatus{Common: Common{Type: ResponseStatusName}, Success: true, Message: ""}
 	} else {
-		response = AddEventResp{Success: false}
+		resp.Status = ResponseStatus{Common: Common{Type: ResponseStatusName}, Success: false, Message: fmt.Sprintf("%s", err)}
 	}
 
-	w.WriteHeader(http.StatusOK)
-	jsonData, err := json.Marshal(response)
-	if err != nil {
-		log.Fatalf("Marshaling data failed: %s", err.Error())
-	}
-	w.Write(jsonData)
+	srv.send(resp, w, r)
 }
 
+/* getEventsWithinTimeRange handles a request to the /api/v1/getEventsWithinTimeRange endpoint.
+ * Takes GetEventsReq as JSON, retrieves events within the specified time range and returns
+ * response with events or error message.
+ *
+ * Example request:
+ *
+ *	POST /api/v1/getEventsWithinTimeRange
+ *	{
+ *		"start": "2024-02-13T12:00:00Z",
+ *		"end": "2024-02-13T12:00:00Z"
+ *	}
+ *
+ * Example response:
+ *
+ *	{
+ *		"common": {
+ *			"type": "GetEventsResp"
+ *		},
+ *		"status": {
+ *			"type": "ResponseStatus",
+ *			"success": true,
+ *			"message": ""
+ *		},
+ *		"events": []
+ *	}
+ */
 func (srv *HTTPRestServer) getEventsWithinTimeRange(w http.ResponseWriter, r *http.Request) {
 	/* Get all events within selected time range*/
 	var (
-		err      error
-		response GetEventsResp
-		status   ResponseStatus
+		err  error
+		resp GetEventsResp
 	)
 
-	responseWithError := func(w http.ResponseWriter, r *http.Request, msg string) {
-		status = ResponseStatus{Common: Common{ResponseStatusName}, Success: false, Message: msg}
-		response = GetEventsResp{Common: Common{Type: GetEventsRespName}, Status: status, Events: nil}
-		jsonData, err := json.Marshal(response)
-		if err != nil {
-			log.Fatalf("Marshaling data failed: %s", err.Error())
+	responseWithError := func(w http.ResponseWriter, msg string) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+
+		resp = GetEventsResp{Common: Common{Type: GetEventsRespName},
+			Status: ResponseStatus{Common: Common{ResponseStatusName}, Success: false, Message: msg},
+			Events: nil,
 		}
-		w.WriteHeader(http.StatusOK)
-		w.Write(jsonData)
+
+		srv.send(resp, w, r)
 	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
 
 	err = validateJWT(w, r)
 	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		resp := make(map[string]string)
-		resp["message"] = fmt.Sprint(err)
-		jsonResp, err := json.Marshal(resp)
-		if err != nil {
-			log.Fatalf("Error happened in JSON marshal. Err: %s", err)
-		}
-		w.Write(jsonResp)
+		srv.invalidTokenResponse(w, r, err)
 		return
 	}
 
-	var msg_data GetEventsReq
+	var msgData GetEventsReq
 
-	err = json.NewDecoder(r.Body).Decode(&msg_data)
-	switch {
-	case err == io.EOF || err != nil:
-		responseWithError(w, r, "Missing body.")
+	err = json.NewDecoder(r.Body).Decode(&msgData)
+	if err == io.EOF || err != nil {
+		responseWithError(w, "Missing body.")
+
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
 
-	start_unix, err := dateTimeToUnix(&msg_data.Start)
+	startUnix, err := dateTimeToUnix(&msgData.Start)
 	if err != nil {
-		responseWithError(w, r, "Start data error.")
+		responseWithError(w, "Start data error.")
+
 		return
 	}
 
-	end_unix, err := dateTimeToUnix(&msg_data.End)
+	endUnix, err := dateTimeToUnix(&msgData.End)
 	if err != nil {
-		responseWithError(w, r, "End data error.")
+		responseWithError(w, "End data error.")
+
 		return
 	}
 
-	result, err := srv.db.GetEventsByTimeRange(start_unix, end_unix)
+	result, err := srv.db.GetEventsByTimeRange(startUnix, endUnix)
 	if err != nil {
-		log.Printf("%v", err)
+		srv.log.Warning(err)
 	}
 
-	response = GetEventsResp{
+	resp = GetEventsResp{
 		Common: Common{Type: GetEventsRespName},
 		Status: ResponseStatus{
-			Common:  Common{Type: ResponseStatusName},
-			Success: true,
-			Message: "",
+			Common:  Common{ResponseStatusName},
+			Success: false, Message: "",
 		},
 		Events: result,
 	}
 
-	w.WriteHeader(http.StatusOK)
-	jsonData, err := json.Marshal(response)
-	if err != nil {
-		log.Fatalf("Marshaling data failed: %s", err.Error())
-	}
-	w.Write(jsonData)
+	srv.send(resp, w, r)
 }
 
 func (srv *HTTPRestServer) killserver(w http.ResponseWriter, r *http.Request) {
-	/* Kill running server from external source if correct deadly_package is provided. */
-
+	/* Kill running server from external source if correct deadlyPackage is provided. */
 	var (
 		request  KillReq
 		response KillResp
 	)
 
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+
 	err := json.NewDecoder(r.Body).Decode(&request)
 	if err != nil {
-		log.Fatal(err)
+		srv.log.Error(err)
 	}
 
-	if request.Payload == srv.deadly_package {
+	if request.Payload == srv.deadlyPackage {
 		srv.log.Critical("Received external kill signal.")
 
-		w.WriteHeader(http.StatusOK)
-
-		response.Status.setSuccess(true)
-		response.Status.setMessage("Server will shutdown in 2 seconds!")
-		jsonData, err := json.Marshal(response)
-		if err != nil {
-			srv.log.Error("Marshaling data failed: ", err.Error())
+		response = KillResp{
+			Common: Common{Type: KillRespName},
+			Status: ResponseStatus{
+				Common:  Common{ResponseStatusName},
+				Success: true,
+				Message: "Server will shutdown in 2 seconds!",
+			},
 		}
 
-		w.Write(jsonData)
+		srv.send(response, w, r)
+
 		srv.log.Critical("Received external kill signal.")
-		time.Sleep(2 * time.Second)
+		time.Sleep(GracefulShutdownTimeout)
 		srv.sigs <- syscall.SIGINT
 	} else {
 		srv.log.Error("Deadly package error.")
 
-		w.WriteHeader(http.StatusOK)
-
-		response.Status.setSuccess(false)
-		response.Status.setMessage("Deadly package error.")
-		jsonData, err := json.Marshal(response)
-		if err != nil {
-			srv.log.Error("Marshaling data failed: ", err.Error())
+		response = KillResp{
+			Common: Common{Type: KillRespName},
+			Status: ResponseStatus{
+				Common:  Common{ResponseStatusName},
+				Success: false,
+				Message: "Package error!",
+			},
 		}
-		w.Write(jsonData)
+
+		srv.send(response, w, r)
 	}
 }
