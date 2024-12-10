@@ -41,14 +41,14 @@ func (srv *HTTPRestServer) invalidTokenResponse(w http.ResponseWriter, r *http.R
 		resp InvalidTokenResp
 	)
 
-	w.WriteHeader(http.StatusUnauthorized)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
 
 	resp = InvalidTokenResp{
 		Common: Common{
 			Type: InvalidTokenRespName,
 		},
-		Status: ResponseStatus{
+		Status: MessageStatus{
 			Success: false,
 			Message: fmt.Sprintf("%s", reason),
 		},
@@ -118,17 +118,7 @@ func (srv *HTTPRestServer) loginHandler(writer http.ResponseWriter, request *htt
 
 		data := TokenMsg{Token: token}
 
-		jsonData, err := json.Marshal(data)
-		if err != nil {
-			srv.log.Error("Marshaling data failed:", err)
-			return
-		}
-
-		_, err = writer.Write(jsonData)
-		if err != nil {
-			srv.log.Error("Writing data failed:", err)
-			return
-		}
+		srv.send(data, writer, request)
 
 		return
 
@@ -144,8 +134,6 @@ func (srv *HTTPRestServer) loginHandler(writer http.ResponseWriter, request *htt
 /* Returns server version in JSON format. */
 /* If JWT token is invalid, returns 401 with error message. */
 func (srv *HTTPRestServer) serverVersionHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	err := validateJWT(w, r)
 	if err != nil {
 		srv.invalidTokenResponse(w, r, err)
@@ -153,12 +141,13 @@ func (srv *HTTPRestServer) serverVersionHandler(w http.ResponseWriter, r *http.R
 	}
 
 	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
 
 	resp := VersionResp{
 		Common: Common{
 			Type: VersionRespName,
 		},
-		Status: ResponseStatus{
+		Status: MessageStatus{
 			Success: true,
 			Message: "",
 		},
@@ -182,7 +171,7 @@ Example response:
 	{
 		"sum": "0b2dd0f43614138995beafa87b6356b",
 		"status": {
-			"type": "ResponseStatus",
+			"type": "MessageStatus",
 			"success": true,
 			"message": ""
 		}
@@ -194,9 +183,6 @@ func (srv *HTTPRestServer) getEventCheckSum(w http.ResponseWriter, r *http.Reque
 		event    EventData
 		response GetEventCheckSumResp
 	)
-
-	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "application/json")
 
 	err = validateJWT(w, r)
 	if err != nil {
@@ -212,15 +198,18 @@ func (srv *HTTPRestServer) getEventCheckSum(w http.ResponseWriter, r *http.Reque
 		srv.log.Error(err)
 	}
 
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+
 	response.Common = Common{Type: GetEventCheckSumRespName}
 
 	event, err = srv.db.GetEventByUUID(msgData.UUID)
 	if err != nil {
 		srv.log.Error(err)
-		response.Status = ResponseStatus{Common: Common{Type: ResponseStatusName}, Success: false, Message: fmt.Sprintf("%s", err)}
+		response.Status = MessageStatus{Common: Common{Type: MessageStatusName}, Success: false, Message: fmt.Sprintf("%s", err)}
 		response.Sum = fmt.Sprintf("%x", 0)
 	} else {
-		response.Status = ResponseStatus{Common: Common{Type: ResponseStatusName}, Success: true, Message: ""}
+		response.Status = MessageStatus{Common: Common{Type: MessageStatusName}, Success: true, Message: ""}
 		response.Sum = fmt.Sprintf("%x", event.Sha256())
 	}
 
@@ -243,7 +232,7 @@ func (srv *HTTPRestServer) getStatus(w http.ResponseWriter, r *http.Request) {
 		resp = GetStatusResp{
 			Common:    Common{Type: GetStatusRespName},
 			Timestamp: time.Now().Unix(),
-			Status:    ResponseStatus{Common: Common{ResponseStatusName}, Success: false, Message: msg},
+			Status:    MessageStatus{Common: Common{MessageStatusName}, Success: false, Message: msg},
 			Version:   Version,
 		}
 
@@ -292,7 +281,7 @@ Example response:
 			"type": "AddEventResp"
 		},
 		"status": {
-			"type": "ResponseStatus",
+			"type": "MessageStatus",
 			"success": true,
 			"message": ""
 		}
@@ -304,25 +293,22 @@ func (srv *HTTPRestServer) insertEvent(w http.ResponseWriter, r *http.Request) {
 		resp AddEventResp
 	)
 
+	err = validateJWT(w, r)
+	if err != nil {
+		srv.invalidTokenResponse(w, r, err)
+		return
+	}
+
 	responseWithError := func(w http.ResponseWriter, msg string) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Header().Set("Content-Type", "application/json")
 
 		resp = AddEventResp{
 			Common: Common{Type: AddEventRespName},
-			Status: ResponseStatus{Common: Common{ResponseStatusName}, Success: false, Message: msg},
+			Status: MessageStatus{Common: Common{MessageStatusName}, Success: false, Message: msg},
 		}
 
 		srv.send(resp, w, r)
-	}
-
-	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "application/json")
-
-	err = validateJWT(w, r)
-	if err != nil {
-		srv.invalidTokenResponse(w, r, err)
-		return
 	}
 
 	var msgData AddEventReq
@@ -341,11 +327,14 @@ func (srv *HTTPRestServer) insertEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+
 	resp.Common = Common{Type: AddEventRespName}
 	if result.UUID == msgData.Event.UUID {
-		resp.Status = ResponseStatus{Common: Common{Type: ResponseStatusName}, Success: true, Message: ""}
+		resp.Status = MessageStatus{Common: Common{Type: MessageStatusName}, Success: true, Message: ""}
 	} else {
-		resp.Status = ResponseStatus{Common: Common{Type: ResponseStatusName}, Success: false, Message: fmt.Sprintf("%s", err)}
+		resp.Status = MessageStatus{Common: Common{Type: MessageStatusName}, Success: false, Message: fmt.Sprintf("%s", err)}
 	}
 
 	srv.send(resp, w, r)
@@ -370,7 +359,7 @@ func (srv *HTTPRestServer) insertEvent(w http.ResponseWriter, r *http.Request) {
  *			"type": "GetEventsResp"
  *		},
  *		"status": {
- *			"type": "ResponseStatus",
+ *			"type": "MessageStatus",
  *			"success": true,
  *			"message": ""
  *		},
@@ -389,15 +378,12 @@ func (srv *HTTPRestServer) getEventsWithinTimeRange(w http.ResponseWriter, r *ht
 		w.Header().Set("Content-Type", "application/json")
 
 		resp = GetEventsResp{Common: Common{Type: GetEventsRespName},
-			Status: ResponseStatus{Common: Common{ResponseStatusName}, Success: false, Message: msg},
+			Status: MessageStatus{Common: Common{MessageStatusName}, Success: false, Message: msg},
 			Events: nil,
 		}
 
 		srv.send(resp, w, r)
 	}
-
-	w.WriteHeader(http.StatusOK)
-	w.Header().Set("Content-Type", "application/json")
 
 	err = validateJWT(w, r)
 	if err != nil {
@@ -433,11 +419,15 @@ func (srv *HTTPRestServer) getEventsWithinTimeRange(w http.ResponseWriter, r *ht
 		srv.log.Warning(err)
 	}
 
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+
 	resp = GetEventsResp{
 		Common: Common{Type: GetEventsRespName},
-		Status: ResponseStatus{
-			Common:  Common{ResponseStatusName},
-			Success: false, Message: "",
+		Status: MessageStatus{
+			Common:  Common{MessageStatusName},
+			Success: true,
+			Message: "",
 		},
 		Events: result,
 	}
@@ -465,8 +455,8 @@ func (srv *HTTPRestServer) killserver(w http.ResponseWriter, r *http.Request) {
 
 		response = KillResp{
 			Common: Common{Type: KillRespName},
-			Status: ResponseStatus{
-				Common:  Common{ResponseStatusName},
+			Status: MessageStatus{
+				Common:  Common{MessageStatusName},
 				Success: true,
 				Message: "Server will shutdown in 2 seconds!",
 			},
@@ -482,8 +472,8 @@ func (srv *HTTPRestServer) killserver(w http.ResponseWriter, r *http.Request) {
 
 		response = KillResp{
 			Common: Common{Type: KillRespName},
-			Status: ResponseStatus{
-				Common:  Common{ResponseStatusName},
+			Status: MessageStatus{
+				Common:  Common{MessageStatusName},
 				Success: false,
 				Message: "Package error!",
 			},

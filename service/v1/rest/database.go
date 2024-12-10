@@ -343,12 +343,12 @@ func (r *SQLiteRepository) GetStatus() (GetStatusResp, error) {
 		resp GetStatusResp
 	)
 
-	resp.Common = Common{Type: ResponseStatusName}
+	resp.Common = Common{Type: GetStatusRespName}
 
 	rows, err := r.db.Query("SELECT timestamp, version FROM status WHERE ROWID IN ( SELECT max( ROWID ) FROM status);")
 	if err != nil {
 		r.log.Error(err)
-		resp.Status = ResponseStatus{Common{ResponseStatusName}, false, err.Error()}
+		resp.Status = MessageStatus{Common{MessageStatusName}, false, err.Error()}
 
 		return resp, err
 	}
@@ -358,13 +358,13 @@ func (r *SQLiteRepository) GetStatus() (GetStatusResp, error) {
 	for rows.Next() {
 		if err := rows.Scan(&resp.Timestamp, &resp.Version); err != nil {
 			r.log.Error(err)
-			resp.Status = ResponseStatus{Common{ResponseStatusName}, false, err.Error()}
+			resp.Status = MessageStatus{Common{MessageStatusName}, false, err.Error()}
 
 			return GetStatusResp{}, err
 		}
 	}
 
-	resp.Status = ResponseStatus{Common{ResponseStatusName}, true, ""}
+	resp.Status = MessageStatus{Common{MessageStatusName}, true, ""}
 
 	return resp, nil
 }

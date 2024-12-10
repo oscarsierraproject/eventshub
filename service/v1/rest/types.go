@@ -13,11 +13,11 @@ import (
 const (
 	DateTimeStructName       string        = "DateTime"
 	EventDataStructName      string        = "EventData"
-	ResponseStatusName       string        = "ResponseStatus"
+	MessageStatusName        string        = "MessageStatus"
 	AddEventRespName         string        = "AddEventResp"
 	GetEventCheckSumRespName string        = "GetEventCheckSumResp"
 	GetEventsRespName        string        = "GetEventsResp"
-	GetStatusRespName        string        = "GetStatusResp"
+	GetStatusRespName        string        = "ServerStatusResp"
 	InvalidTokenRespName     string        = "InvalidTokenResp"
 	KillRespName             string        = "KillResp"
 	Version                  string        = "v1.1.0"
@@ -83,7 +83,7 @@ func (e *EventData) ToString() string {
 }
 
 //nolint:govet //All structs should have similar attributes order
-type ResponseStatus struct {
+type MessageStatus struct {
 	Common
 	Success bool   `json:"success"`
 	Message string `json:"message"`
@@ -95,7 +95,7 @@ type AddEventReq struct {
 
 type AddEventResp struct {
 	Common
-	Status ResponseStatus `json:"status"`
+	Status MessageStatus `json:"status"`
 }
 
 type GetEventCheckSumReq struct {
@@ -104,8 +104,8 @@ type GetEventCheckSumReq struct {
 
 type GetEventCheckSumResp struct {
 	Common
-	Sum    string         `json:"sum"`
-	Status ResponseStatus `json:"status"`
+	Sum    string        `json:"sum"`
+	Status MessageStatus `json:"status"`
 }
 
 type GetEventsReq struct {
@@ -116,8 +116,8 @@ type GetEventsReq struct {
 //nolint:govet //All structs should have similar attributes order
 type GetEventsResp struct {
 	Common
-	Events []EventData    `json:"events"`
-	Status ResponseStatus `json:"status"`
+	Events []EventData   `json:"events"`
+	Status MessageStatus `json:"status"`
 }
 
 type GetStatusReq struct {
@@ -126,14 +126,14 @@ type GetStatusReq struct {
 //nolint:govet //All structs should have similar attributes order
 type GetStatusResp struct {
 	Common
-	Timestamp int64          `json:"timestamp"`
-	Status    ResponseStatus `json:"status"`
-	Version   string         `json:"version"`
+	Timestamp int64         `json:"timestamp"`
+	Status    MessageStatus `json:"status"`
+	Version   string        `json:"version"`
 }
 
 type InvalidTokenResp struct {
 	Common
-	Status ResponseStatus `json:"status"`
+	Status MessageStatus `json:"status"`
 }
 
 type KillReq struct {
@@ -142,7 +142,7 @@ type KillReq struct {
 
 type KillResp struct {
 	Common
-	Status ResponseStatus `json:"status"`
+	Status MessageStatus `json:"status"`
 }
 
 type TokenMsg struct {
@@ -151,6 +151,6 @@ type TokenMsg struct {
 
 type VersionResp struct {
 	Common
-	Status  ResponseStatus `json:"status"`
-	Version string         `json:"version"`
+	Status  MessageStatus `json:"status"`
+	Version string        `json:"version"`
 }
