@@ -46,10 +46,41 @@ This project provides a simple calendar API that allows users to create, read, u
 3. Set the environment variables from [Authentication](#authentication) section
 4. Run the API: `go run main.go`
 
+### Docker
+
+Variable EVENTSHUB_VERSION must be set before calling docker compose to tag image with correct version of service
+
+```
+export EVENTSHUB_VERSION="1.1.1"
+```
+
+Following variables should be placed in `.env.` file:
+```
+GOCALENDAR_ADMIN_USERNAME="..."
+GOCALENDAR_ADMIN_PASSWORD="..."
+GOCALENDAR_ADMIN_HASH="..."
+GOCALENDAR_DEADLY_PACKAGE="..."
+GOCALENDAR_PORT="..."
+GOCALENDAR_TOKEN_SECRET="..."
+```
+Keep in mind that the port number in `docker-compose.yaml` file must match the one in `GOCALENDAR_PORT`.
+
+OpenSSL certificate and signing key must be placed in `.openssl` directory in project root:
+
+```
+.openssl/
+├── signing.crt
+└── signing.key
+```
+
+Finally build an application with `go build main.go` and place binary named `main` in `./bin` directory.
+
 ### Configuring Your Environment: Essential Variables
 
 Before diving into the implementation details, it's essential to ensure your environment is properly configured to support the application. This chapter outlines the critical environment variables that must be set to guarantee seamless execution. These variables play a vital role in defining the application's behavior, security, and connectivity. 
 
+- EVENTSHUB_VERSION
+Description: Current version of the project. Used by docker-compose while creating service image.
 - GOCALENDAR_HOST
 Description: The host IP address or hostname where the server will listen.
 - GOCALENDAR_PORT

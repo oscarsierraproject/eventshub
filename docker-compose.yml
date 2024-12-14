@@ -1,0 +1,27 @@
+version: '3'
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: eventshub:${EVENTSHUB_VERSION}
+    secrets:
+      - signing_key
+      - signing_crt
+    ports:
+      - "4789:4789"
+    expose:
+      - 4789
+    env_file:
+      - .env
+    environment:
+      GOCALENDAR_HOST: server
+      GOCALENDAR_OPENSSL_CALENDAR_SIGNING_KEY: /run/secrets/signing_key
+      GOCALENDAR_OPENSSL_CALENDAR_CERTIFICATE: /run/secrets/signing_crt
+
+
+secrets:
+  signing_key:
+    file: ./.openssl/signing.key
+  signing_crt:
+    file: ./.openssl/signing.crt
